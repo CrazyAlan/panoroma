@@ -23,19 +23,25 @@ const char* matches_window = "Good Matches";
 const float rows = 1200;
 const float cols = 1600;
 
-const float pano_rows = 2400;
+const float pano_rows = 1800;
 const float pano_cols = 4800;
 
-const float offset_rows = 600;
-const float offset_cols = 1200;
+const float offset_rows = 300;
+const float offset_cols = 1600;
+
+#define TO_EXTENDED_COORD 1
+#define TO_REFERED_COORD 0
 
 float norm_ma[3][3] = {{2/cols,0,-1},{0,2/rows,-1},{0,0,1}};
 Mat norm_matrix = Mat(3, 3, CV_32FC1,norm_ma);
 
 /// Function header
 void siftDetector( int, void* );
-Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches,Mat* X_norm1, Mat* X_norm2);
+Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches);
 Mat buildCoord(void);
+Mat coordTransX2Xprime(Mat x,Mat H); // H X2Xprime H.inv() Xprime2X
+Mat coordCalib(Mat x,bool flag);
+Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches);
 
 /**
  * @function main
@@ -95,30 +101,15 @@ void siftDetector( int, void* )
     { good_matches.push_back( matches[i]); }
     }
     
-    Mat img_matches;
-    drawMatches(src_1, keypoints_1, src_2, keypoints_2, good_matches, img_matches);
-    
-    Mat X_norm1;
-    Mat X_norm2;
-    Mat A = buildA(keypoints_1, keypoints_2, good_matches,&X_norm1,&X_norm2);
-    SVD svd(A);
-    Mat h = svd.vt.t().col(svd.vt.rows - 1);
-    Mat H = h.t();
-    H = H.reshape(1, 3);
-    cout << "h is "  << h << endl;
+    //Mat img_matches;
+    //drawMatches(src_1, keypoints_1, src_2, keypoints_2, good_matches, img_matches);
+    Mat H =  getTrans(keypoints_1, keypoints_2, good_matches);
     cout << "H is " << H << endl;
     
     Mat coord = buildCoord();
-    Mat coord_norm = norm_matrix*coord;
-    Mat h_x = H*coord_norm;
-    Mat H_X = norm_matrix.inv()*h_x;
     
-    for (int i =0; i<(int)cols*(int)rows; i++) {
-        H_X.col(i) /= H_X.at<float>(2, i);
-    }
-    
-    H_X.row(0) += (float)offset_cols;
-    H_X.row(1) += (float)offset_rows;
+    Mat H_X = coordTransX2Xprime(coord, H); // Refered Coordinate
+    H_X = coordCalib(H_X,TO_EXTENDED_COORD); //Extended Coordinate
     
     Mat out_img1((int)pano_rows,(int)pano_cols,CV_8UC1,Scalar::all(0));
     Mat out_img2((int)pano_rows,(int)pano_cols,CV_8UC1,Scalar::all(0));
@@ -133,8 +124,6 @@ void siftDetector( int, void* )
             int y = H_X.at<float>(1,i*(int)cols + j);
            // cout << src_gray_1.at<uchar>(i, j) << endl;
             out_img1.at<uchar>(y,x) = src_gray_1.at<uchar>(i, j);
-          
-            
         }
     }
     
@@ -149,7 +138,6 @@ void siftDetector( int, void* )
     namedWindow(matches_window,0);
     imshow( "Good Matches", dst);
     
-    
 }
 
 /** 
@@ -157,9 +145,11 @@ void siftDetector( int, void* )
  * @build Matrix A for DLT algorithm
  */
 
-Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches,Mat* X_norm1,Mat* X_norm2)
+Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches)
 {
     // Creat Coordinate Matrix
+    Mat X_norm1;
+    Mat X_norm2;
     Mat X_img1(3,(int)good_matches.size(),CV_32FC1);
     Mat X_img2(3,(int)good_matches.size(),CV_32FC1);
     for (int i=0; i<(int)good_matches.size(); i++) {
@@ -171,21 +161,31 @@ Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, s
         Mat(3, 1, CV_32FC1, x_prime).copyTo(X_img2.col(i));
     }
     
-    *X_norm1 = norm_matrix*X_img1;
-    *X_norm2 = norm_matrix*X_img2;
+    X_norm1 = norm_matrix*X_img1;
+    X_norm2 = norm_matrix*X_img2;
     
     // Creat 8*9 Matrix, using 4 points
     Mat A(2*(int)good_matches.size(),9,CV_32FC1,Scalar::all(0));
     for (int i=0; i<good_matches.size(); i++) {
         //cout <<(*X_norm1).col(i).t() << endl;
-        A(Range(i*2,i*2+1),Range(3,6)) = -(*X_norm2).at<float>(2,i) * (*X_norm1).col(i).t();
-        A(Range(i*2,i*2+1),Range(6,9)) = (*X_norm2).at<float>(1,i) * (*X_norm1).col(i).t();
-        A(Range(i*2+1,i*2+2),Range(0,3)) = (*X_norm2).at<float>(2,i) * (*X_norm1).col(i).t();
-        A(Range(i*2+1,i*2+2),Range(6,9)) = -(*X_norm2).at<float>(0,i) * (*X_norm1).col(i).t();
+        A(Range(i*2,i*2+1),Range(3,6)) = -X_norm2.at<float>(2,i) * X_norm1.col(i).t();
+        A(Range(i*2,i*2+1),Range(6,9)) = X_norm2.at<float>(1,i) * X_norm1.col(i).t();
+        A(Range(i*2+1,i*2+2),Range(0,3)) = X_norm2.at<float>(2,i) * X_norm1.col(i).t();
+        A(Range(i*2+1,i*2+2),Range(6,9)) = -X_norm2.at<float>(0,i) * X_norm1.col(i).t();
 
         //cout<< A(Range(i*2,i*2+2),Range(0,9)) << endl;
     }
     return A;
+}
+
+Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches)
+{
+    Mat A = buildA(keypoint_1, keypoint_2, good_matches);
+    SVD svd(A);
+    Mat h = svd.vt.t().col(svd.vt.rows - 1);
+    Mat H = h.t();
+    H = H.reshape(1, 3);
+    return H;
 }
 
 Mat buildCoord(void)
@@ -200,3 +200,29 @@ Mat buildCoord(void)
     }
     return coord;
 }
+
+Mat coordTransX2Xprime(Mat x, Mat H)
+{
+   // Mat x_prime(3,1,CV_32FC1);
+    x = norm_matrix*x;//x_norm
+    x = H*x;//h_x
+    x = norm_matrix.inv()*x;
+    for (int i=0; i<x.cols; i++) {
+        x.col(i) /= x.at<float>(2,i);
+    }
+    return x;
+}
+
+Mat coordCalib(Mat x, bool flag)
+{
+    if (flag) {
+        x.row(0) += offset_cols;
+        x.row(1) += offset_rows;
+    }else
+    {
+        x.row(0) -= offset_cols;
+        x.row(1) -= offset_rows;
+    }
+        return x;
+}
+
