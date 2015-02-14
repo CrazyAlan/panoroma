@@ -13,6 +13,9 @@ using namespace std;
 /// Global variables
 Mat src_1, src_gray_1;
 Mat src_2, src_gray_2;
+Mat src_3, src_gray_3;
+Mat src_4, src_gray_4;
+
 int thresh = 200;
 int max_thresh = 255;
 
@@ -35,6 +38,10 @@ const float offset_cols = 1600;
 float norm_ma[3][3] = {{2/cols,0,-1},{0,2/rows,-1},{0,0,1}};
 Mat norm_matrix = Mat(3, 3, CV_32FC1,norm_ma);
 
+float tmp[4][3] = {{0,0,1},{1600,0,1},{0,1200,1},{1600,1200,1}};
+Mat m_tmp(4,3,CV_32FC1,tmp);
+Mat board_coord = m_tmp.t();
+
 /// Function header
 void siftDetector( int, void* );
 void goodMatches(Mat descriptor1, Mat descriptor2,std::vector<DMatch>* good_matches);
@@ -45,6 +52,7 @@ Mat coordCalib(Mat x,bool flag);
 Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches);
 void affineTrans(Mat* s_image, Mat* out_img, Mat coord_source, Mat coord_out);
 Mat linearBlend(Mat img1, Mat img2);
+void getImgNSrcCoord(Mat H, Mat *img_coord, Mat *out_img_coord);
 
 /**
  * @function main
@@ -56,11 +64,11 @@ int main( int, char** argv )
     cvtColor( src_1, src_gray_1, COLOR_BGR2GRAY );
     src_2 = imread(argv[2], 1);
     cvtColor(src_2, src_gray_2, COLOR_BGR2GRAY);
-    
-    /// Create a window and a trackbar
-    namedWindow( source_window, CV_WINDOW_NORMAL );
-    resizeWindow( source_window, 0.1 ,0.1);
-    imshow( source_window, src_gray_1 );
+    src_3 = imread(argv[3], 1);
+    cvtColor(src_3, src_gray_3, COLOR_BGR2GRAY);
+    src_4 = imread(argv[4], 1);
+    cvtColor(src_4, src_gray_4, COLOR_BGR2GRAY);
+
     
     siftDetector( 0, 0 );
     
@@ -75,51 +83,36 @@ int main( int, char** argv )
 void siftDetector( int, void* )
 {
     SIFT detector = SIFT(thresh,3,0.04,10,1.6);
-    vector<cv::KeyPoint> keypoints_1;
-    vector<cv::KeyPoint> keypoints_2;
-    Mat descriptor_1;
-    Mat descriptor_2;
+    vector<cv::KeyPoint> keypoints_1, keypoints_2, keypoints_3, keypoints_4;
+    Mat descriptor_1, descriptor_2, descriptor_3, descriptor_4;
+    
     detector.operator()(src_gray_1, Mat(), keypoints_1,descriptor_1,false);
     detector.operator()(src_gray_2,Mat(),keypoints_2,descriptor_2,false);
+    detector.operator()(src_gray_3,Mat(),keypoints_3,descriptor_3,false);
+    detector.operator()(src_gray_4,Mat(),keypoints_4,descriptor_4,false);
+
     
+    //Mat img_matches;
     vector<DMatch> good_matches;
     goodMatches(descriptor_1, descriptor_2,&good_matches);
-    //Mat img_matches;
-
+    
+    //Projective Transform Matrix
+    //Transform From Img1 to Img2
     Mat H =  getTrans(keypoints_1, keypoints_2, good_matches);
-   // cout << "H is " << H << endl;
+   
+    Mat img_coord;
+    Mat out_img_coord;
+    getImgNSrcCoord(H, &img_coord, &out_img_coord);
     
-    float tmp[4][3] = {{0,0,1},{1600,0,1},{0,1200,1},{1600,1200,1}};
-    Mat m_tmp(4,3,CV_32FC1,tmp);
-    Mat board_coord = m_tmp.t();
-    
-    Mat H_board_coord = coordTransX2Xprime(board_coord, H); // Refered Coordinate
-    H_board_coord = coordCalib(H_board_coord,TO_EXTENDED_COORD); //Extended Coordinate
-   // cout << "H_board_coord" << H_board_coord << endl;
-    
-    double x_min,x_max,y_min,y_max;
-    
-    minMaxIdx(H_board_coord.row(0), &x_min, &x_max);
-    minMaxIdx(H_board_coord.row(1), &y_min, &y_max);
-    cout << "x min" << endl << x_min << "  " <<  x_max  << "  "<< y_min << "  " << y_max << endl;
+    Mat out_img1((int)pano_rows,(int)pano_cols,CV_8UC3,Scalar(0,0,0));
+    Mat out_img2((int)pano_rows,(int)pano_cols,CV_8UC3,Scalar(0,0,0));
 
+    affineTrans(&src_1, &out_img1, img_coord, out_img_coord);
     
-    Mat out_img_coord = buildCoord(x_min, x_max, y_min,y_max);
-    Mat img_coord = coordCalib(out_img_coord, TO_REFERED_COORD);
-    
-    cout << "out_img_coor "<< endl << out_img_coord(Range(0, 3),Range(0, 20)) << endl;
-    img_coord = coordTransX2Xprime(img_coord, H.inv());
-    
-    Mat out_img1((int)pano_rows,(int)pano_cols,CV_8UC1,Scalar::all(0));
-    Mat out_img2((int)pano_rows,(int)pano_cols,CV_8UC1,Scalar::all(0));
-
-    affineTrans(&src_gray_1, &out_img1, img_coord, out_img_coord);
-    src_gray_2.copyTo(out_img2(Range((int)offset_rows,(int)rows+(int)offset_rows),Range((int)offset_cols,(int)offset_cols+(int)cols)));
+    src_2.copyTo(out_img2(Range((int)offset_rows,(int)rows+(int)offset_rows),Range((int)offset_cols,(int)offset_cols+(int)cols)));
     
     
     Mat dst = linearBlend(out_img1, out_img2);
-    
-    
     
     resize(dst , dst, Size(dst.cols/4,out_img1.rows/4));
     namedWindow(matches_window,0);
@@ -202,6 +195,23 @@ Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2,
     return H;
 }
 
+void getImgNSrcCoord(Mat H, Mat *img_coord, Mat *out_img_coord)
+{
+    Mat H_board_coord = coordTransX2Xprime(board_coord, H); // Refered Coordinate
+    H_board_coord = coordCalib(H_board_coord,TO_EXTENDED_COORD); //Extended Coordinate
+    
+    double x_min,x_max,y_min,y_max;
+    
+    minMaxIdx(H_board_coord.row(0), &x_min, &x_max);
+    minMaxIdx(H_board_coord.row(1), &y_min, &y_max);
+    
+    *out_img_coord = buildCoord(x_min, x_max, y_min,y_max);
+    *img_coord = coordCalib(*out_img_coord, TO_REFERED_COORD);
+    
+    *img_coord = coordTransX2Xprime(*img_coord, H.inv());
+
+}
+
 Mat buildCoord(int x_min, int x_max, int y_min, int y_max)
 {
     int x_range = x_max - x_min;
@@ -252,7 +262,7 @@ void affineTrans(Mat* s_image, Mat* out_img, Mat coord_source, Mat coord_out)
         int x2 = coord_source.at<float>(0,i);
         int y2 = coord_source.at<float>(1,i);
         if ( x2 >=0 && x2<1600 && y2 >=0 && y2<1200 ) {
-            (*out_img).at<uchar>(y,x) = (*s_image).at<uchar>(y2,x2);
+            (*out_img).at<Vec3b>(y,x) = (*s_image).at<Vec3b>(y2,x2);
         }
     }
 }

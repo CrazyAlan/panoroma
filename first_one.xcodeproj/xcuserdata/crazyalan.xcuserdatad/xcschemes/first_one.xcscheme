@@ -66,6 +66,14 @@
             argument = "IMG_7356.JPG"
             isEnabled = "YES">
          </CommandLineArgument>
+         <CommandLineArgument
+            argument = "IMG_7357.JPG"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "IMG_7358.JPG"
+            isEnabled = "YES">
+         </CommandLineArgument>
       </CommandLineArguments>
       <AdditionalOptions>
       </AdditionalOptions>
