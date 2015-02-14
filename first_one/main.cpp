@@ -11,10 +11,7 @@ using namespace cv;
 using namespace std;
 
 /// Global variables
-Mat src_1, src_gray_1;
-Mat src_2, src_gray_2;
-Mat src_3, src_gray_3;
-Mat src_4, src_gray_4;
+Mat src[4], src_gray[4];
 
 int thresh = 200;
 int max_thresh = 255;
@@ -34,6 +31,7 @@ const float offset_cols = 1600;
 
 #define TO_EXTENDED_COORD 1
 #define TO_REFERED_COORD 0
+#define REFEREE_ID 1
 
 float norm_ma[3][3] = {{2/cols,0,-1},{0,2/rows,-1},{0,0,1}};
 Mat norm_matrix = Mat(3, 3, CV_32FC1,norm_ma);
@@ -60,15 +58,10 @@ void getImgNSrcCoord(Mat H, Mat *img_coord, Mat *out_img_coord);
 int main( int, char** argv )
 {
     /// Load source image and convert it to grayn
-    src_1 = imread( argv[1], 1 );
-    cvtColor( src_1, src_gray_1, COLOR_BGR2GRAY );
-    src_2 = imread(argv[2], 1);
-    cvtColor(src_2, src_gray_2, COLOR_BGR2GRAY);
-    src_3 = imread(argv[3], 1);
-    cvtColor(src_3, src_gray_3, COLOR_BGR2GRAY);
-    src_4 = imread(argv[4], 1);
-    cvtColor(src_4, src_gray_4, COLOR_BGR2GRAY);
-
+    for (int i=0; i<4; i++) {
+        src[i] = imread( argv[1+i], 1 );
+        cvtColor( src[i], src_gray[i], COLOR_BGR2GRAY );
+    }
     
     siftDetector( 0, 0 );
     
@@ -83,40 +76,44 @@ int main( int, char** argv )
 void siftDetector( int, void* )
 {
     SIFT detector = SIFT(thresh,3,0.04,10,1.6);
-    vector<cv::KeyPoint> keypoints_1, keypoints_2, keypoints_3, keypoints_4;
-    Mat descriptor_1, descriptor_2, descriptor_3, descriptor_4;
+    vector<cv::KeyPoint> keypoints[4];
+    Mat descriptor[4];
+    Mat out_img[4];
+    for (int i=0; i<4; i++) {
+        detector.operator()(src_gray[i], Mat(), keypoints[i],descriptor[i],false);
+        out_img[i] = Mat((int)pano_rows,(int)pano_cols,CV_8UC3,Scalar(0,0,0));
+    }
     
-    detector.operator()(src_gray_1, Mat(), keypoints_1,descriptor_1,false);
-    detector.operator()(src_gray_2,Mat(),keypoints_2,descriptor_2,false);
-    detector.operator()(src_gray_3,Mat(),keypoints_3,descriptor_3,false);
-    detector.operator()(src_gray_4,Mat(),keypoints_4,descriptor_4,false);
+    Mat dst;
+    
+    src[1].copyTo(out_img[1](Range((int)offset_rows,(int)rows+(int)offset_rows),Range((int)offset_cols,(int)offset_cols+(int)cols)));
+    
+    
+    for (int i=0; i<4; i++) {
+        //Mat img_matches;
+        if (i == REFEREE_ID) {
+            continue;
+        }
+        vector<DMatch> good_matches;
+        goodMatches(descriptor[i], descriptor[REFEREE_ID],&good_matches);
+        
+        //Projective Transform Matrix
+        //Transform From Img1 to Img2
+        Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], good_matches);
+        
+        Mat img_coord;
+        Mat out_img_coord;
+        getImgNSrcCoord(H, &img_coord, &out_img_coord);
+        
+        affineTrans(&src[i], &out_img[i], img_coord, out_img_coord);
+        out_img[REFEREE_ID] = linearBlend(out_img[i], out_img[REFEREE_ID]);
 
-    
-    //Mat img_matches;
-    vector<DMatch> good_matches;
-    goodMatches(descriptor_1, descriptor_2,&good_matches);
-    
-    //Projective Transform Matrix
-    //Transform From Img1 to Img2
-    Mat H =  getTrans(keypoints_1, keypoints_2, good_matches);
-   
-    Mat img_coord;
-    Mat out_img_coord;
-    getImgNSrcCoord(H, &img_coord, &out_img_coord);
-    
-    Mat out_img1((int)pano_rows,(int)pano_cols,CV_8UC3,Scalar(0,0,0));
-    Mat out_img2((int)pano_rows,(int)pano_cols,CV_8UC3,Scalar(0,0,0));
-
-    affineTrans(&src_1, &out_img1, img_coord, out_img_coord);
-    
-    src_2.copyTo(out_img2(Range((int)offset_rows,(int)rows+(int)offset_rows),Range((int)offset_cols,(int)offset_cols+(int)cols)));
+    }
     
     
-    Mat dst = linearBlend(out_img1, out_img2);
-    
-    resize(dst , dst, Size(dst.cols/4,out_img1.rows/4));
+    resize(out_img[REFEREE_ID] , out_img[REFEREE_ID], Size(out_img[REFEREE_ID].cols/4,out_img[REFEREE_ID].rows/4));
     namedWindow(matches_window,0);
-    imshow( "Good Matches", dst);
+    imshow( "Good Matches", out_img[REFEREE_ID]);
     
 }
 
