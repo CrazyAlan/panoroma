@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 using namespace cv;
 using namespace std;
@@ -32,6 +33,7 @@ const float offset_cols = 1600;
 #define TO_EXTENDED_COORD 1
 #define TO_REFERED_COORD 0
 #define REFEREE_ID 1
+#define RANSAC_TIMES 34
 
 float norm_ma[3][3] = {{2/cols,0,-1},{0,2/rows,-1},{0,0,1}};
 Mat norm_matrix = Mat(3, 3, CV_32FC1,norm_ma);
@@ -51,12 +53,17 @@ Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2,
 void affineTrans(Mat* s_image, Mat* out_img, Mat coord_source, Mat coord_out);
 Mat linearBlend(Mat img1, Mat img2);
 void getImgNSrcCoord(Mat H, Mat *img_coord, Mat *out_img_coord);
+void ransac(vector<DMatch> good_matches, vector<DMatch>* inlier_matches, vector<KeyPoint> keypoint_1, vector<KeyPoint> keypoint_2);
+void randomArray(int size, int range, int *array);
+
 
 /**
  * @function main
  */
 int main( int, char** argv )
 {
+    srand (time(NULL));
+    
     /// Load source image and convert it to grayn
     for (int i=0; i<4; i++) {
         src[i] = imread( argv[1+i], 1 );
@@ -89,17 +96,22 @@ void siftDetector( int, void* )
     src[1].copyTo(out_img[1](Range((int)offset_rows,(int)rows+(int)offset_rows),Range((int)offset_cols,(int)offset_cols+(int)cols)));
     
     
-    for (int i=0; i<4; i++) {
+    for (int i=0; i<3; i++) {
         //Mat img_matches;
         if (i == REFEREE_ID) {
             continue;
         }
         vector<DMatch> good_matches;
+        vector<DMatch> inlier_matches;
         goodMatches(descriptor[i], descriptor[REFEREE_ID],&good_matches);
         
         //Projective Transform Matrix
         //Transform From Img1 to Img2
-        Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], good_matches);
+        
+        ransac(good_matches, &inlier_matches, keypoints[i], keypoints[REFEREE_ID]);
+        Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], inlier_matches);
+        
+      //  Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], good_matches);
         
         Mat img_coord;
         Mat out_img_coord;
@@ -140,8 +152,57 @@ void goodMatches(Mat descriptor1, Mat descriptor2,std::vector<DMatch> *good_matc
 
     //Draw Good Matches
     for( int i = 0; i < descriptor1.rows; i++ )
-    { if( matches[i].distance <= max(3*min_dist, 0.02) )
+    { if( matches[i].distance <= max(4*min_dist, 0.02) )
     { (*good_matches).push_back( matches[i]); }
+    }
+}
+
+/**
+ * @function ransac
+ * @choose largest number of inliers
+ */
+void ransac(vector<DMatch> good_matches, vector<DMatch>* inlier_matches, vector<KeyPoint> keypoint_1, vector<KeyPoint> keypoint_2)
+{
+    int max = 0;
+    vector<DMatch> rnd_matches(4);
+    for (int count=0; count< RANSAC_TIMES; count++) {
+        int rnd_array[4];
+        randomArray(4, (int)good_matches.size(), rnd_array);
+        for (int i=0; i<4; i++) {
+            rnd_matches[i] = good_matches[rnd_array[i]];
+        }
+        
+        Mat H_tmp = getTrans(keypoint_1, keypoint_2, rnd_matches);
+        Mat A = buildA(keypoint_1, keypoint_2, good_matches);
+        Mat A_H = A*(H_tmp.reshape(1,1)).t(); // 2n * 1
+        A_H = A_H.mul(A_H);
+        Mat error((int)good_matches.size(),1,CV_32F);
+        for (int i=0; i<good_matches.size(); i++) {
+            error.at<float>(i,0) = A_H.at<float>(2*i, 0) + A_H.at<float>(2*i+1, 0);
+        }
+        
+        cout << "error are   " << endl << error << endl;
+        
+        double error_min, error_max;
+        minMaxIdx(error.col(0), &error_min, &error_max);
+        error = (error <= 1.50367e-03); // satisfied, return 255
+        error /= 255;
+        
+        int inliers = sum(error)[0]; // channel zero
+        
+        if (inliers > max) {
+            max = inliers;
+            (*inlier_matches).clear();
+
+            for (int i=0; i<good_matches.size(); i++) {
+                if (error.at<uchar>(i,0) == 1) {
+                    (*inlier_matches).push_back(good_matches[i]);
+                }
+            }
+            
+        }
+        cout <<"Ransac Inliers  " <<  inliers << "Inliers total " <<(*inlier_matches).size() << endl;
+        cout << "Rtio of inliers  " << float((*inlier_matches).size())/(float)good_matches.size() << endl;
     }
 }
 /**
@@ -283,3 +344,19 @@ Mat linearBlend(Mat img1, Mat img2)
     
     return out_img;
 }
+
+void randomArray(int size, int range, int *array)
+{
+    for (int i=0; i<size; i++) {
+        array[i] = rand()%range;
+        for (int y=0; y<i; y++) {
+            if (array[i] == array[y]) {
+                i--;
+                break;
+            }
+        }
+        
+    }
+}
+
+
