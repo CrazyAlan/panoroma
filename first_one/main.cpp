@@ -7,12 +7,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include "ceres_optimization.h"
 
 using namespace cv;
 using namespace std;
 
 /// Global variables
-Mat src[4], src_gray[4];
+cv::Mat src[4], src_gray[4];
 
 int thresh = 200;
 int max_thresh = 255;
@@ -36,30 +37,33 @@ const float offset_cols = 1600;
 #define RANSAC_TIMES 34
 
 float norm_ma[3][3] = {{2/cols,0,-1},{0,2/rows,-1},{0,0,1}};
-Mat norm_matrix = Mat(3, 3, CV_32FC1,norm_ma);
+cv::Mat norm_matrix = cv::Mat(3, 3, CV_32FC1,norm_ma);
 
 float tmp[4][3] = {{0,0,1},{1600,0,1},{0,1200,1},{1600,1200,1}};
-Mat m_tmp(4,3,CV_32FC1,tmp);
-Mat board_coord = m_tmp.t();
+cv::Mat m_tmp(4,3,CV_32FC1,tmp);
+cv::Mat board_coord = m_tmp.t();
 
 /// Function header
 void siftDetector( int, void* );
-void goodMatches(Mat descriptor1, Mat descriptor2,std::vector<DMatch>* good_matches);
-Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches);
-Mat buildCoord(int x_min, int x_max, int y_min, int y_max);
-Mat coordTransX2Xprime(Mat x,Mat H); // H X2Xprime H.inv() Xprime2X
-Mat coordCalib(Mat x,bool flag);
-Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches);
-void affineTrans(Mat* s_image, Mat* out_img, Mat coord_source, Mat coord_out);
-Mat linearBlend(Mat img1, Mat img2);
-void getImgNSrcCoord(Mat H, Mat *img_coord, Mat *out_img_coord);
+void goodMatches(cv::Mat descriptor1, cv::Mat descriptor2,std::vector<DMatch>* good_matches);
+cv::Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches);
+cv::Mat buildCoord(int x_min, int x_max, int y_min, int y_max);
+cv::Mat coordTransX2Xprime(cv::Mat x,cv::Mat H); // H X2Xprime H.inv() Xprime2X
+cv::Mat coordCalib(cv::Mat x,bool flag);
+cv::Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches);
+void affineTrans(cv::Mat* s_image, cv::Mat* out_img, cv::Mat coord_source, cv::Mat coord_out);
+cv::Mat linearBlend(cv::Mat img1, cv::Mat img2);
+void getImgNSrcCoord(cv::Mat H, cv::Mat *img_coord, cv::Mat *out_img_coord);
 void ransac(vector<DMatch> good_matches, vector<DMatch>* inlier_matches, vector<KeyPoint> keypoint_1, vector<KeyPoint> keypoint_2);
 void randomArray(int size, int range, int *array);
+void buildX1X2ForReprojection(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> inlier_matches, Mate *X1, Mate *X2);
+void matTransCVMat2Mate(cv::Mat *A, Mat3 *B, bool flag);
 
 
 /**
  * @function main
  */
+
 int main( int, char** argv )
 {
     srand (time(NULL));
@@ -75,6 +79,7 @@ int main( int, char** argv )
     waitKey(0);
     return(0);
 }
+ 
 
 /**
  * @function siftDetector
@@ -84,20 +89,25 @@ void siftDetector( int, void* )
 {
     SIFT detector = SIFT(thresh,3,0.04,10,1.6);
     vector<cv::KeyPoint> keypoints[4];
-    Mat descriptor[4];
-    Mat out_img[4];
+    cv::Mat descriptor[4];
+    cv::Mat out_img[4];
     for (int i=0; i<4; i++) {
-        detector.operator()(src_gray[i], Mat(), keypoints[i],descriptor[i],false);
-        out_img[i] = Mat((int)pano_rows,(int)pano_cols,CV_8UC3,Scalar(0,0,0));
+        detector.operator()(src_gray[i], cv::Mat(), keypoints[i],descriptor[i],false);
+        out_img[i] = cv::Mat((int)pano_rows,(int)pano_cols,CV_8UC3,Scalar(0,0,0));
     }
     
-    Mat dst;
+    EstimateHomographyOptions options;
+    options.expected_average_symmetric_distance = 0.0000002;
+    
+
+    
+    cv::Mat dst;
     
     src[1].copyTo(out_img[1](Range((int)offset_rows,(int)rows+(int)offset_rows),Range((int)offset_cols,(int)offset_cols+(int)cols)));
     
     
     for (int i=0; i<3; i++) {
-        //Mat img_matches;
+        //cv::Mat img_matches;
         if (i == REFEREE_ID) {
             continue;
         }
@@ -109,12 +119,23 @@ void siftDetector( int, void* )
         //Transform From Img1 to Img2
         
         ransac(good_matches, &inlier_matches, keypoints[i], keypoints[REFEREE_ID]);
-        Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], inlier_matches);
+        cv::Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], inlier_matches);
         
-      //  Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], good_matches);
+        //Using Reprojection Error to Optimize
+        Mate X1(2,inlier_matches.size()), X2(2,inlier_matches.size());
+        Mat3 H_hat;
+        matTransCVMat2Mate(&H,&H_hat,1);
+        buildX1X2ForReprojection(keypoints[i], keypoints[REFEREE_ID], inlier_matches, &X1, &X2);
+        EstimateHomography2DFromReprojection(X1, X2,options,&H_hat);
         
-        Mat img_coord;
-        Mat out_img_coord;
+        std::cout << "Original matrix:\n" << H << "\n";
+        std::cout << "Estimated matrix:\n" << H_hat << "\n";
+
+        
+       // cv::Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], inlier_matches);
+        matTransCVMat2Mate(&H, &H_hat, 0);
+        cv::Mat img_coord;
+        cv::Mat out_img_coord;
         getImgNSrcCoord(H, &img_coord, &out_img_coord);
         
         affineTrans(&src[i], &out_img[i], img_coord, out_img_coord);
@@ -134,7 +155,7 @@ void siftDetector( int, void* )
  * @function goodMatches
  * @find Mathces
  */
-void goodMatches(Mat descriptor1, Mat descriptor2,std::vector<DMatch> *good_matches)
+void goodMatches(cv::Mat descriptor1, cv::Mat descriptor2,std::vector<DMatch> *good_matches)
 {
     //Feature Matching
     FlannBasedMatcher matcher;
@@ -172,16 +193,16 @@ void ransac(vector<DMatch> good_matches, vector<DMatch>* inlier_matches, vector<
             rnd_matches[i] = good_matches[rnd_array[i]];
         }
         
-        Mat H_tmp = getTrans(keypoint_1, keypoint_2, rnd_matches);
-        Mat A = buildA(keypoint_1, keypoint_2, good_matches);
-        Mat A_H = A*(H_tmp.reshape(1,1)).t(); // 2n * 1
+        cv::Mat H_tmp = getTrans(keypoint_1, keypoint_2, rnd_matches);
+        cv::Mat A = buildA(keypoint_1, keypoint_2, good_matches);
+        cv::Mat A_H = A*(H_tmp.reshape(1,1)).t(); // 2n * 1
         A_H = A_H.mul(A_H);
-        Mat error((int)good_matches.size(),1,CV_32F);
+        cv::Mat error((int)good_matches.size(),1,CV_32F);
         for (int i=0; i<good_matches.size(); i++) {
             error.at<float>(i,0) = A_H.at<float>(2*i, 0) + A_H.at<float>(2*i+1, 0);
         }
         
-        cout << "error are   " << endl << error << endl;
+       // cout << "error are   " << endl << error << endl;
         
         double error_min, error_max;
         minMaxIdx(error.col(0), &error_min, &error_max);
@@ -210,27 +231,27 @@ void ransac(vector<DMatch> good_matches, vector<DMatch>* inlier_matches, vector<
  * @build Matrix A for DLT algorithm
  */
 
-Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches)
+cv::Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches)
 {
     // Creat Coordinate Matrix
-    Mat X_norm1;
-    Mat X_norm2;
-    Mat X_img1(3,(int)good_matches.size(),CV_32FC1);
-    Mat X_img2(3,(int)good_matches.size(),CV_32FC1);
+    cv::Mat X_norm1;
+    cv::Mat X_norm2;
+    cv::Mat X_img1(3,(int)good_matches.size(),CV_32FC1);
+    cv::Mat X_img2(3,(int)good_matches.size(),CV_32FC1);
     for (int i=0; i<(int)good_matches.size(); i++) {
         int id1 = good_matches[i].queryIdx;
         int id2 = good_matches[i].trainIdx;
         float x[3] = {keypoint_1[id1].pt.x,keypoint_1[id1].pt.y,1};
         float x_prime[3] = {keypoint_2[id2].pt.x,keypoint_2[id2].pt.y,1};
-        Mat(3,1,CV_32FC1,x).copyTo(X_img1.col(i));
-        Mat(3, 1, CV_32FC1, x_prime).copyTo(X_img2.col(i));
+        cv::Mat(3,1,CV_32FC1,x).copyTo(X_img1.col(i));
+        cv::Mat(3, 1, CV_32FC1, x_prime).copyTo(X_img2.col(i));
     }
     
     X_norm1 = norm_matrix*X_img1;
     X_norm2 = norm_matrix*X_img2;
     
     // Creat 8*9 Matrix, using 4 points
-    Mat A(2*(int)good_matches.size(),9,CV_32FC1,Scalar::all(0));
+    cv::Mat A(2*(int)good_matches.size(),9,CV_32FC1,Scalar::all(0));
     for (int i=0; i<good_matches.size(); i++) {
         //cout <<(*X_norm1).col(i).t() << endl;
         A(Range(i*2,i*2+1),Range(3,6)) = -X_norm2.at<float>(2,i) * X_norm1.col(i).t();
@@ -243,19 +264,65 @@ Mat buildA(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, s
     return A;
 }
 
-Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches)
+void buildX1X2ForReprojection(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> inlier_matches, Mate *X1, Mate *X2)
 {
-    Mat A = buildA(keypoint_1, keypoint_2, good_matches);
+    // Creat Coordinate Matrix
+    cv::Mat X_norm1;
+    cv::Mat X_norm2;
+    cv::Mat X_img1(3,(int)inlier_matches.size(),CV_32FC1);
+    cv::Mat X_img2(3,(int)inlier_matches.size(),CV_32FC1);
+    for (int i=0; i<(int)inlier_matches.size(); i++) {
+        int id1 = inlier_matches[i].queryIdx;
+        int id2 = inlier_matches[i].trainIdx;
+        float x[3] = {keypoint_1[id1].pt.x,keypoint_1[id1].pt.y,1};
+        float x_prime[3] = {keypoint_2[id2].pt.x,keypoint_2[id2].pt.y,1};
+        cv::Mat(3,1,CV_32FC1,x).copyTo(X_img1.col(i));
+        cv::Mat(3, 1, CV_32FC1, x_prime).copyTo(X_img2.col(i));
+    }
+    
+    X_norm1 = norm_matrix*X_img1;
+    X_norm2 = norm_matrix*X_img2;
+    
+    for (int i=0; i<(int)inlier_matches.size(); i++) {
+        (*X1)(0,i) = (double)X_norm1.at<float>(0,i);
+        (*X1)(1,i) = (double)X_norm1.at<float>(1,i);
+        (*X2)(0,i) = (double)X_norm2.at<float>(0,i);
+        (*X2)(1,i) = (double)X_norm2.at<float>(1,i);
+    }
+}
+
+void matTransCVMat2Mate(cv::Mat *A, Mat3 *B, bool flag)
+{
+    if(flag){ //flag=1, CV::MAT -> Mate
+        for (int i=0; i<3; i++) {
+            for (int j=0; j<3; j++) {
+                (*B)(i,j) = (double)(*A).at<float>(i,j);
+            }
+        }
+    }
+    else{
+        for (int i=0; i<3; i++) {
+            for (int j=0; j<3; j++) {
+                 (*A).at<float>(i,j) = (*B)(i,j);
+            }
+        }
+    }
+}
+
+
+cv::Mat getTrans(std::vector<KeyPoint> keypoint_1, std::vector<KeyPoint> keypoint_2, std::vector<DMatch> good_matches)
+{
+    cv::Mat A = buildA(keypoint_1, keypoint_2, good_matches);
     SVD svd(A);
-    Mat h = svd.vt.t().col(svd.vt.rows - 1);
-    Mat H = h.t();
+    cv::Mat h = svd.vt.t().col(svd.vt.rows - 1);
+    cv::Mat H = h.t();
     H = H.reshape(1, 3);
     return H;
 }
 
-void getImgNSrcCoord(Mat H, Mat *img_coord, Mat *out_img_coord)
+void getImgNSrcCoord(cv::Mat H, cv::Mat *img_coord, cv::Mat *out_img_coord)
 {
-    Mat H_board_coord = coordTransX2Xprime(board_coord, H); // Refered Coordinate
+    cv::Mat H_board_coord = coordTransX2Xprime(board_coord, H); // Refered Coordinate
     H_board_coord = coordCalib(H_board_coord,TO_EXTENDED_COORD); //Extended Coordinate
     
     double x_min,x_max,y_min,y_max;
@@ -270,11 +337,11 @@ void getImgNSrcCoord(Mat H, Mat *img_coord, Mat *out_img_coord)
 
 }
 
-Mat buildCoord(int x_min, int x_max, int y_min, int y_max)
+cv::Mat buildCoord(int x_min, int x_max, int y_min, int y_max)
 {
     int x_range = x_max - x_min;
     int y_range = y_max - y_min;
-    Mat coord = Mat(3, x_range*y_range, CV_32FC1);
+    cv::Mat coord = cv::Mat(3, x_range*y_range, CV_32FC1);
     for (int i=0; i<(int)y_range; i++) {
         for (int j=0; j<(int)x_range; j++) {
             coord.at<float>(0,i*x_range + j) = j + x_min;
@@ -285,9 +352,9 @@ Mat buildCoord(int x_min, int x_max, int y_min, int y_max)
     return coord;
 }
 
-Mat coordTransX2Xprime(Mat x, Mat H)
+cv::Mat coordTransX2Xprime(cv::Mat x, cv::Mat H)
 {
-    Mat x_prime(3,x.cols,CV_32FC1);
+    cv::Mat x_prime(3,x.cols,CV_32FC1);
     x_prime = norm_matrix*x;//x_norm
     x_prime = H*x_prime;//h_x
     x_prime = norm_matrix.inv()*x_prime;
@@ -297,9 +364,9 @@ Mat coordTransX2Xprime(Mat x, Mat H)
     return x_prime;
 }
 
-Mat coordCalib(Mat x, bool flag)
+cv::Mat coordCalib(cv::Mat x, bool flag)
 {
-    Mat x_new;
+    cv::Mat x_new;
     x.copyTo(x_new);
     if (flag) {
         x_new.row(0) += offset_cols;
@@ -312,7 +379,7 @@ Mat coordCalib(Mat x, bool flag)
         return x_new;
 }
 
-void affineTrans(Mat* s_image, Mat* out_img, Mat coord_source, Mat coord_out)
+void affineTrans(cv::Mat* s_image, cv::Mat* out_img, cv::Mat coord_source, cv::Mat coord_out)
 {
     for (int i=0; i<coord_out.cols; i++) {
         int x = coord_out.at<float>(0,i);
@@ -325,10 +392,10 @@ void affineTrans(Mat* s_image, Mat* out_img, Mat coord_source, Mat coord_out)
     }
 }
 
-Mat linearBlend(Mat img1, Mat img2)
+cv::Mat linearBlend(cv::Mat img1, cv::Mat img2)
 {
-    Mat mask(img1.size(),CV_8UC1);
-    Mat mask2(img1.size(),CV_8UC1);
+    cv::Mat mask(img1.size(),CV_8UC1);
+    cv::Mat mask2(img1.size(),CV_8UC1);
     cv::min(img1, img2, mask);
     mask2 = (mask != 0);
     mask2 /= 255;
@@ -336,7 +403,7 @@ Mat linearBlend(Mat img1, Mat img2)
     mask /= 255;
     mask *= 2;
     mask = mask + mask2;
-    Mat out_img(img1.size(),CV_8UC1);
+    cv::Mat out_img(img1.size(),CV_8UC1);
     double alpha = 0.5;
     double beta = 1 - alpha;
     addWeighted(img1, alpha, img2, beta, 0, out_img);

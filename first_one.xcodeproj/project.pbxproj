@@ -12,6 +12,8 @@
 		E22928EE1A85CF6D000A9708 /* libopencv_highgui.2.4.9.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = E22928EC1A85CF6D000A9708 /* libopencv_highgui.2.4.9.dylib */; };
 		E2381FF71A8ADE9A004C668D /* libopencv_nonfree.2.4.9.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = E2381FF61A8ADE9A004C668D /* libopencv_nonfree.2.4.9.dylib */; };
 		E23974071A8ACA21003B996A /* libopencv_imgproc.2.4.9.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = E23974061A8ACA21003B996A /* libopencv_imgproc.2.4.9.dylib */; };
+		E252E98D1A92B51E005D8098 /* libglog.0.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = E252E98C1A92B51E005D8098 /* libglog.0.dylib */; };
+		E252E98F1A92B534005D8098 /* libceres.1.9.0.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = E252E98E1A92B534005D8098 /* libceres.1.9.0.dylib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -33,6 +35,9 @@
 		E22928EC1A85CF6D000A9708 /* libopencv_highgui.2.4.9.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libopencv_highgui.2.4.9.dylib; path = /usr/local/Cellar/opencv/2.4.9/lib/libopencv_highgui.2.4.9.dylib; sourceTree = "<absolute>"; };
 		E2381FF61A8ADE9A004C668D /* libopencv_nonfree.2.4.9.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libopencv_nonfree.2.4.9.dylib; path = /usr/local/Cellar/opencv/2.4.9/lib/libopencv_nonfree.2.4.9.dylib; sourceTree = "<absolute>"; };
 		E23974061A8ACA21003B996A /* libopencv_imgproc.2.4.9.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libopencv_imgproc.2.4.9.dylib; path = /usr/local/Cellar/opencv/2.4.9/lib/libopencv_imgproc.2.4.9.dylib; sourceTree = "<absolute>"; };
+		E252E98A1A92B41A005D8098 /* ceres_optimization.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ceres_optimization.h; sourceTree = "<group>"; };
+		E252E98C1A92B51E005D8098 /* libglog.0.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libglog.0.dylib; path = /usr/local/Cellar/glog/0.3.3/lib/libglog.0.dylib; sourceTree = "<absolute>"; };
+		E252E98E1A92B534005D8098 /* libceres.1.9.0.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libceres.1.9.0.dylib; path = "/usr/local/Cellar/ceres-solver/1.9.0/lib/libceres.1.9.0.dylib"; sourceTree = "<absolute>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,6 +45,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E252E98F1A92B534005D8098 /* libceres.1.9.0.dylib in Frameworks */,
+				E252E98D1A92B51E005D8098 /* libglog.0.dylib in Frameworks */,
 				E23974071A8ACA21003B996A /* libopencv_imgproc.2.4.9.dylib in Frameworks */,
 				E22928EE1A85CF6D000A9708 /* libopencv_highgui.2.4.9.dylib in Frameworks */,
 				E2381FF71A8ADE9A004C668D /* libopencv_nonfree.2.4.9.dylib in Frameworks */,
@@ -72,7 +79,10 @@
 		E22928E01A85CA57000A9708 /* first_one */ = {
 			isa = PBXGroup;
 			children = (
+				E252E98E1A92B534005D8098 /* libceres.1.9.0.dylib */,
+				E252E98C1A92B51E005D8098 /* libglog.0.dylib */,
 				E22928E11A85CA57000A9708 /* main.cpp */,
+				E252E98A1A92B41A005D8098 /* ceres_optimization.h */,
 			);
 			path = first_one;
 			sourceTree = "<group>";
@@ -248,11 +258,21 @@
 					"$(inherited)",
 					/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include,
 					/usr/local/include,
+					/usr/local/Cellar/gflags/2.0/include,
+					/usr/local/Cellar/glog/0.3.3/include,
+					"/usr/local/Cellar/ceres-solver/1.9.0/include",
+					/usr/local/Cellar/eigen/3.2.2/include/eigen3,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/usr/local/Cellar/opencv/2.4.9/lib,
 					/usr/local/lib,
+					/usr/local/Cellar/glog/0.3.3/lib,
+					/usr/local/Cellar/gflags/2.0/include,
+					/usr/local/Cellar/glog/0.3.3/include,
+					"/usr/local/Cellar/ceres-solver/1.9.0/include",
+					/usr/local/Cellar/eigen/3.2.2/include/eigen3,
+					"/usr/local/Cellar/ceres-solver/1.9.0/lib",
 				);
 				MACH_O_TYPE = mh_execute;
 				New_Setting = "";
@@ -284,11 +304,21 @@
 					"$(inherited)",
 					/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include,
 					/usr/local/include,
+					/usr/local/Cellar/gflags/2.0/include,
+					/usr/local/Cellar/glog/0.3.3/include,
+					"/usr/local/Cellar/ceres-solver/1.9.0/include",
+					/usr/local/Cellar/eigen/3.2.2/include/eigen3,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/usr/local/Cellar/opencv/2.4.9/lib,
 					/usr/local/lib,
+					/usr/local/Cellar/glog/0.3.3/lib,
+					/usr/local/Cellar/gflags/2.0/include,
+					/usr/local/Cellar/glog/0.3.3/include,
+					"/usr/local/Cellar/ceres-solver/1.9.0/include",
+					/usr/local/Cellar/eigen/3.2.2/include/eigen3,
+					"/usr/local/Cellar/ceres-solver/1.9.0/lib",
 				);
 				MACH_O_TYPE = mh_execute;
 				New_Setting = "";
