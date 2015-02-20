@@ -122,18 +122,17 @@ void siftDetector( int, void* )
         cv::Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], inlier_matches);
         
         //Using Reprojection Error to Optimize
-        Mate X1(2,inlier_matches.size()), X2(2,inlier_matches.size());
+        Mate X1(2,good_matches.size()), X2(2,good_matches.size());
         Mat3 H_hat;
         matTransCVMat2Mate(&H,&H_hat,1);
-        buildX1X2ForReprojection(keypoints[i], keypoints[REFEREE_ID], inlier_matches, &X1, &X2);
+        buildX1X2ForReprojection(keypoints[i], keypoints[REFEREE_ID], good_matches, &X1, &X2);
         EstimateHomography2DFromReprojection(X1, X2,options,&H_hat);
         
         std::cout << "Original matrix:\n" << H << "\n";
         std::cout << "Estimated matrix:\n" << H_hat << "\n";
 
         
-       // cv::Mat H =  getTrans(keypoints[i], keypoints[REFEREE_ID], inlier_matches);
-        matTransCVMat2Mate(&H, &H_hat, 0);
+     //   matTransCVMat2Mate(&H, &H_hat, 0);
         cv::Mat img_coord;
         cv::Mat out_img_coord;
         getImgNSrcCoord(H, &img_coord, &out_img_coord);
